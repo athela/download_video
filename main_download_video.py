@@ -87,7 +87,7 @@ class BiliBiliDownloaderWithLogin:
             debug_print(f"❌ 未知登录方法: {method}")
             return False
 
-    def debug_video_info(self, info):
+    def debug_video_info(self, info, url):
         if not info:
             return
         result = {
@@ -125,20 +125,21 @@ class BiliBiliDownloaderWithLogin:
             if not self.login():
                 debug_print("❌ 登录失败，无法下载")
                 return False
-        for url in url_list:
-            self._download_one_video(url, quality)
+        for url_info in url_list:
+            url, playlist_items = url_info
+            self._download_one_video(url, quality, playlist_items)
 
 
-    def download_video(self, url, quality='最佳可用'):
+    def download_video(self, url, quality='最佳可用', playlist_items=None):
         if not self.check_login_status():
             debug_print("需要重新登录...")
             if not self.login():
                 debug_print("❌ 登录失败，无法下载")
                 return False
 
-        self._download_one_video(url, quality)
+        self._download_one_video(url, quality, playlist_items)
 
-    def _download_one_video(self, url, quality):
+    def _download_one_video(self, url, quality, playlist_items):
         format_choice = self.quality_map.get(quality, 'bestvideo+bestaudio')
         # 下载配置
         ydl_opts = {
@@ -167,6 +168,8 @@ class BiliBiliDownloaderWithLogin:
                 'Referer': 'https://www.bilibili.com',
             },
         }
+        if playlist_items and '_p' not in url and '?p=' not in url:
+            ydl_opts['playlist_items'] = playlist_items
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -179,7 +182,7 @@ class BiliBiliDownloaderWithLogin:
                     # 检查是否需要会员
                     if info.get('availability') == 'subscriber_only':
                         debug_print("🔒 会员视频，使用登录cookies下载")
-                    self.debug_video_info(info)
+                    self.debug_video_info(info, url)
                 else:
                     debug_print('没有视频详细信息', format_choice)
 
@@ -261,11 +264,13 @@ class BiliBiliDownloaderWithLogin:
 if __name__ == "__main__":
     download_url_list = get_download_url_list()
     downloader = BiliBiliDownloaderWithLogin()
+    # 批量下载
+    downloader.download_batch_video(download_url_list)
 
     # 单个下载
     # url = download_url_list[2]
     # downloader.download_video(url)
 
-    # 批量下载
-    downloader.download_batch_video(download_url_list)
+
+
 
