@@ -1,6 +1,6 @@
 __pycache__
 .idea
 cookies/
-download_list.json
-output/
+#download_list.json
+#output/
 
