@@ -7,6 +7,26 @@ import json
 from config import output_dir, bilibili_cookie_txt, bilibili_cookie_json, get_download_url_list, debug_print
 
 
+class YtDlpLogger:
+    """Forward yt-dlp logs while suppressing known non-fatal Bilibili metadata warnings."""
+
+    ignored_warning_snippets = (
+        'Unable to download JSON metadata: HTTP Error 412: Precondition Failed',
+    )
+
+    def debug(self, msg):
+        if msg and not msg.startswith('[debug]'):
+            debug_print(msg)
+
+    def warning(self, msg):
+        if any(snippet in msg for snippet in self.ignored_warning_snippets):
+            return
+        debug_print(f'WARNING: {msg}')
+
+    def error(self, msg):
+        debug_print(f'ERROR: {msg}')
+
+
 
 class BiliBiliDownloaderWithLogin:
     """B站视频下载器（带二维码登录）"""
@@ -192,6 +212,7 @@ class BiliBiliDownloaderWithLogin:
             'outtmpl': str(self.download_dir/'%(title).100s.%(ext)s'),
             'format': format_choice,
             'merge_output_format': 'mp4',
+            'logger': YtDlpLogger(),
 
             # 网络设置
             'retries': 10,
@@ -279,6 +300,7 @@ class BiliBiliDownloaderWithLogin:
         try:
             ydl_opts = {
                 'outtmpl': str(self.download_dir / '%(title).100s.%(ext)s'),
+                'logger': YtDlpLogger(),
                 'http_headers': {
                     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
                     'Referer': 'https://www.bilibili.com',
@@ -329,5 +351,3 @@ if __name__ == "__main__":
     # 单个下载
     # url = download_url_list[2]
     # downloader.download_video(url)
-
-
