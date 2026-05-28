@@ -118,6 +118,51 @@ class BiliBiliDownloaderWithLogin:
                     debug_print(f"  - {fmt['format_id'], fmt['format'], fmt['resolution'], fmt['ext'], size_str}")
         return result
 
+    def _format_rank_key(self, fmt):
+        height = fmt.get('height') or 0
+        tbr = fmt.get('tbr') or 0
+        filesize = fmt.get('filesize') or fmt.get('filesize_approx') or 0
+        return (height, tbr, filesize)
+
+    def _pick_available_format(self, info, max_height=None):
+        formats = info.get('formats') or []
+        if not formats:
+            return None
+
+        def within_height(fmt):
+            if max_height is None:
+                return True
+            height = fmt.get('height')
+            return height is None or height <= max_height
+
+        progressive_formats = [
+            fmt for fmt in formats
+            if fmt.get('vcodec') not in (None, 'none')
+            and fmt.get('acodec') not in (None, 'none')
+            and within_height(fmt)
+        ]
+        if progressive_formats:
+            best_progressive = max(progressive_formats, key=self._format_rank_key)
+            return best_progressive.get('format_id')
+
+        video_formats = [
+            fmt for fmt in formats
+            if fmt.get('vcodec') not in (None, 'none') and within_height(fmt)
+        ]
+        audio_formats = [
+            fmt for fmt in formats
+            if fmt.get('vcodec') == 'none' and fmt.get('acodec') not in (None, 'none')
+        ]
+        if video_formats and audio_formats:
+            best_video = max(video_formats, key=self._format_rank_key)
+            best_audio = max(audio_formats, key=lambda fmt: (fmt.get('abr') or 0, fmt.get('tbr') or 0))
+            return f"{best_video.get('format_id')}+{best_audio.get('format_id')}"
+
+        any_video = [fmt for fmt in formats if fmt.get('vcodec') not in (None, 'none') and within_height(fmt)]
+        if any_video:
+            return max(any_video, key=self._format_rank_key).get('format_id')
+
+        return None
 
     def download_batch_video(self, url_list, quality='最佳可用'):
         if not self.check_login_status():
@@ -198,7 +243,7 @@ class BiliBiliDownloaderWithLogin:
 
             # 尝试备用方案
             debug_print("尝试备用方案...")
-            return self._download_with_alternative(url)
+            return self._download_with_alternative(url, quality)
         except Exception as e:
             debug_print(f"❌ 下载失败: {e}")
             debug_print(ydl_opts['format'])
@@ -229,31 +274,45 @@ class BiliBiliDownloaderWithLogin:
         elif d['status'] == 'finished':
             debug_print(f"\n✅ 下载完成，正在处理...")
 
-    def _download_with_alternative(self, url):
+    def _download_with_alternative(self, url, quality='最佳可用'):
         """备用下载方案"""
         try:
-            # 尝试使用JSON格式的cookies
-            if self.cookies_json.exists():
+            ydl_opts = {
+                'outtmpl': str(self.download_dir / '%(title).100s.%(ext)s'),
+                'http_headers': {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                    'Referer': 'https://www.bilibili.com',
+                },
+            }
+
+            if self.cookies_file.exists():
+                ydl_opts['cookiefile'] = str(self.cookies_file)
+            elif self.cookies_json.exists():
                 with open(self.cookies_json, 'r') as f:
                     cookies_dict = json.load(f)
+                ydl_opts['http_headers']['Cookie'] = '; '.join([f"{k}={v}" for k, v in cookies_dict.items()])
+            else:
+                debug_print("❌ 没有可用的 cookies，备用方案无法继续")
+                return False
 
-                # 转换为cookies字符串
-                cookies_str = '; '.join([f"{k}={v}" for k, v in cookies_dict.items()])
+            with yt_dlp.YoutubeDL({**ydl_opts, 'skip_download': True, 'quiet': True}) as ydl:
+                info = ydl.extract_info(url, download=False)
 
-                ydl_opts = {
-                    'outtmpl': str(self.download_dir/ '%(title).100s.%(ext)s'),
-                    'format': 'best[height<=1080]',
-                    'http_headers': {
-                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-                        'Referer': 'https://www.bilibili.com',
-                        'Cookie': cookies_str,
-                    },
-                }
+            max_height = {
+                '1080p': 1080,
+                '720p': 720,
+                '480p': 480,
+            }.get(quality)
+            format_id = self._pick_available_format(info, max_height=max_height)
+            if not format_id:
+                debug_print("❌ 备用方案未找到可用格式")
+                return False
 
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([url])
+            debug_print(f"备用方案使用可用格式: {format_id}")
+            with yt_dlp.YoutubeDL({**ydl_opts, 'format': format_id}) as ydl:
+                ydl.download([url])
 
-                return True
+            return True
         except Exception as e:
             debug_print(f"❌ 备用方案也失败: {e}")
 
@@ -270,7 +329,5 @@ if __name__ == "__main__":
     # 单个下载
     # url = download_url_list[2]
     # downloader.download_video(url)
-
-
 
 

@@ -14,7 +14,8 @@
 
               ]
             }
-
+环境配置：
+    除了安装 python 依赖库，运行缺啥装啥，记得装ffmpeg: brew install ffmpeg
 
 运行操作：
     配置视频url到 download_list.json 中；
